@@ -1,0 +1,19 @@
+.git
+.env
+*.env
+backend
+docs
+scripts
+nginx*
+ecosystem.config.cjs
+frontend/node_modules
+frontend/.next
+frontend/.test-dist
+frontend/out
+frontend/*.tsbuildinfo
+docker/Dockerfile.backend
+docker/Dockerfile.backend.dockerignore
+
+# Never copy local configuration or credentials into an image.
+**/.env*
+**/*env.local

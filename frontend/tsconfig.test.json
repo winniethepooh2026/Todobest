@@ -1,0 +1,21 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "incremental": false,
+    "isolatedModules": false,
+    "module": "Node16",
+    "moduleResolution": "Node16",
+    "noEmit": false,
+    "outDir": ".test-dist",
+    "rootDir": "src",
+    "types": ["node"]
+  },
+  "include": [
+    "src/components/editor/editor-utils.ts",
+    "src/components/editor/editor-utils.test.ts",
+    "src/lib/timezone.ts",
+    "src/lib/timezone.test.ts",
+    "src/lib/utils.ts",
+    "src/lib/utils.test.ts"
+  ]
+}

@@ -1,0 +1,133 @@
+name: noki-dev
+
+x-backend-environment: &backend-environment
+  ENVIRONMENT: development
+  POSTGRES_HOST: postgres
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: noki
+  POSTGRES_USER: noki
+  POSTGRES_PASSWORD: noki_dev_password
+  REDIS_URL: redis://redis:6379/0
+  DATA_ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+  JWT_SECRET: noki-docker-development-jwt-secret-not-for-production
+  BACKEND_URL: http://localhost:8000
+  FRONTEND_URL: http://localhost:3000
+  CORS_ORIGINS: http://localhost:3000
+  TRUSTED_HOSTS: localhost,127.0.0.1,api
+  UPLOAD_DIR: /data/images
+  EXPORT_DIR: /data/exports
+  MIN_UPLOAD_FREE_BYTES: "0"
+  AVATAR_MALWARE_SCAN_MODE: disabled-for-testing
+
+x-backend-service: &backend-service
+  build:
+    context: ..
+    dockerfile: docker/Dockerfile.backend
+  environment: *backend-environment
+  volumes:
+    - uploads:/data/images
+    - exports:/data/exports
+
+services:
+  postgres:
+    image: postgres:18.4-bookworm
+    environment:
+      POSTGRES_DB: noki
+      POSTGRES_USER: noki
+      POSTGRES_PASSWORD: noki_dev_password
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U noki -d noki"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  redis:
+    image: redis:8.8.1-alpine
+    command: ["redis-server", "--save", "60", "1", "--loglevel", "warning"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  migrate:
+    <<: *backend-service
+    command: ["python", "-m", "alembic", "upgrade", "head"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    <<: *backend-service
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)"]
+      interval: 10s
+      timeout: 6s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+
+  worker:
+    <<: *backend-service
+    command: ["celery", "-A", "app.worker.celery_app:celery_app", "worker", "--loglevel=INFO", "--concurrency=2", "--max-tasks-per-child=100", "--queues=celery", "--hostname=noki-worker@%h"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  mail-worker:
+    <<: *backend-service
+    command: ["celery", "-A", "app.worker.celery_app:celery_app", "worker", "--loglevel=INFO", "--concurrency=1", "--max-tasks-per-child=200", "--queues=mail", "--hostname=noki-mail-worker@%h"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  beat:
+    <<: *backend-service
+    command: ["celery", "-A", "app.worker.celery_app:celery_app", "beat", "--loglevel=INFO", "--schedule=/tmp/celerybeat-schedule"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.frontend
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000/api/v1
+      BACKEND_INTERNAL_URL: http://api:8000
+      NEXT_TELEMETRY_DISABLED: "1"
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:3000:3000"
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  redis-data:
+  uploads:
+  exports:
